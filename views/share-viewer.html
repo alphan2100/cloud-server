@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{FILE_NAME}} — Shared File</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f5f6fa;
+      color: #2d3436;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e1e4e8;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .file-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: #e3f2fd;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name {
+      font-size: 16px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-meta {
+      font-size: 13px;
+      color: #636e72;
+      margin-top: 2px;
+    }
+    .viewer-area {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: auto;
+    }
+    .viewer-content {
+      max-width: 100%;
+      max-height: calc(100vh - 140px);
+    }
+    img.viewer-content {
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    video.viewer-content, audio.viewer-content {
+      width: 100%;
+      max-width: 900px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    iframe.viewer-content {
+      width: 100%;
+      height: calc(100vh - 140px);
+      border: none;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      background: #fff;
+    }
+    .fallback {
+      text-align: center;
+      padding: 48px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .fallback-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+    .fallback-text {
+      font-size: 16px;
+      color: #636e72;
+      margin-bottom: 8px;
+    }
+    .fallback-hint {
+      font-size: 13px;
+      color: #b2bec3;
+    }
+    .text-viewer {
+      width: 100%;
+      max-width: 900px;
+      max-height: calc(100vh - 140px);
+      background: #fff;
+      border-radius: 8px;
+      padding: 24px;
+      overflow: auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      font-family: "SF Mono", Monaco, "Courier New", monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .footer {
+      background: #fff;
+      border-top: 1px solid #e1e4e8;
+      padding: 12px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #b2bec3;
+    }
+    .expired-badge {
+      display: inline-block;
+      background: #ffeaa7;
+      color: #d35400;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="file-icon">{{FILE_ICON}}</div>
+    <div class="file-info">
+      <div class="file-name">{{FILE_NAME}}</div>
+      <div class="file-meta">{{FILE_SIZE}} • {{FILE_TYPE}}{{EXPIRY_INFO}}</div>
+    </div>
+  </div>
+
+  <div class="viewer-area">
+    {{VIEWER_CONTENT}}
+  </div>
+
+  <div class="footer">
+    Powered by Cloud Storage
+  </div>
+</body>
+</html>
