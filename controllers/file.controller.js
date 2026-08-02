@@ -8,6 +8,8 @@ const CacheMiddleware = require('../middlewares/cache.middleware');
 const { remuxVideo, isVideoFile } = require('../services/video-remux.service');
 const { generateThumbnail, deleteThumbnail, getThumbnailPath } = require('../services/thumbnail.service');
 const uploadService = require('../services/upload.service');
+const MusicModel = require('../models/music.model');
+const MusicScanService = require('../services/music-scan.service.js');
 
 function normalizeFolderId(rawFolderId) {
   if (rawFolderId === 'null' || rawFolderId === '' || rawFolderId === undefined || rawFolderId === null) {
@@ -118,6 +120,13 @@ const FileController = {
       'UPDATE files SET deleted_at = NOW() WHERE id = ?',
       [id]
     );
+
+    // Sync soft delete ke music.db (jika file adalah audio)
+    try {
+      MusicModel.softDeleteByFileId(id);
+    } catch (err) {
+      console.error('Gagal sync soft delete ke music.db:', err.message);
+    }
 
     // NOTE: Thumbnail tidak dihapus saat soft delete
     // Thumbnail hanya akan dihapus saat permanent delete dari trash

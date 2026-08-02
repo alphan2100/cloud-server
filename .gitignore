@@ -14,6 +14,7 @@ node_modules/
 # Uploads and generated files
 uploads/
 thumbnails/
+music_covers/
 
 # Logs
 logs

@@ -21,7 +21,12 @@ const shareRoutes = require('./routes/share.routes');
 const moveRoutes = require('./routes/move.routes');
 const directDownloadRoutes = require('./routes/direct-download.routes');
 const torrentRoutes = require('./routes/torrent.routes');
+const musicRoutes = require('./routes/music.routes');
+const playlistRoutes = require('./routes/playlist.routes');
+const favoriteRoutes = require('./routes/favorite.routes.js');
 
+// Music DB (SQLite)
+const { testConnection: testMusicDbConnection } = require('./config/musicDb');
 
 // Error Handler
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
@@ -167,6 +172,9 @@ app.use('/shares', shareRoutes); // share routes punya public endpoint, rate lim
 app.use('/move', apiLimiter, moveRoutes);
 app.use('/direct-download', apiLimiter, directDownloadRoutes);
 app.use('/torrents', apiLimiter, torrentRoutes);
+app.use('/music', lenientLimiter, musicRoutes); // Music player & metadata
+app.use('/playlists', lenientLimiter, playlistRoutes); // Playlist management
+app.use('/favorites', lenientLimiter, favoriteRoutes); // Favorite tracks
 
 
 // 404 handler
@@ -183,6 +191,9 @@ async function startServer() {
   try {
     await pool.query("SELECT 1");
     console.log("✅ Database connected");
+
+    // Test music DB (SQLite) connection
+    testMusicDbConnection();
 
     const HOST = process.env.HOST || '0.0.0.0';
     

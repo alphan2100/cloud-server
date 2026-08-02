@@ -6,6 +6,7 @@ const FolderModel = require('../models/folder.model');
 const { asyncHandler, AppError } = require('../middlewares/error.middleware');
 const CacheMiddleware = require('../middlewares/cache.middleware');
 const { deleteThumbnail, generateThumbnail, thumbnailExists } = require('../services/thumbnail.service');
+const MusicModel = require('../models/music.model');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR;
 
@@ -117,6 +118,12 @@ const TrashController = {
             console.error(`Failed to regenerate thumbnail for ${file.original_filename}:`, err.message);
           }
         }
+        // Sync restore ke music.db (jika file audio)
+        try {
+          MusicModel.restoreByFileId(file.id);
+        } catch (e) {
+          console.error(`Gagal sync restore music.db untuk file ${file.id}:`, e.message);
+        }
       }
     } else {
       // type === 'file'
@@ -162,6 +169,13 @@ const TrashController = {
         } catch (err) {
           console.error(`Failed to regenerate thumbnail for ${restoredFile.original_filename}:`, err.message);
         }
+      }
+
+      // Sync restore ke music.db (jika file audio)
+      try {
+        MusicModel.restoreByFileId(id);
+      } catch (e) {
+        console.error(`Gagal sync restore music.db untuk file ${id}:`, e.message);
       }
     }
 
@@ -226,6 +240,13 @@ const TrashController = {
 
       // Hapus record dari database (hard delete)
       await pool.query('DELETE FROM files WHERE id = ?', [id]);
+
+      // Sync hard delete ke music.db (CASCADE akan hapus playlist_tracks, favorites, play_history)
+      try {
+        MusicModel.deleteByFileId(id);
+      } catch (e) {
+        console.error(`Gagal sync hard delete music.db untuk file ${id}:`, e.message);
+      }
     } else {
       const folder = await FolderModel.findById(id);
 
@@ -241,7 +262,7 @@ const TrashController = {
       const placeholders = folderIds.map(() => '?').join(',');
 
       const [filesInFolderTree] = await pool.query(
-        `SELECT file_path FROM files WHERE user_id = ? AND folder_id IN (${placeholders})`,
+        `SELECT id, file_path FROM files WHERE user_id = ? AND folder_id IN (${placeholders})`,
         [userId, ...folderIds]
       );
 
@@ -281,6 +302,15 @@ const TrashController = {
 
       // Hard delete dari database (CASCADE akan menghapus file & sub-folder)
       await pool.query('DELETE FROM folders WHERE id = ?', [id]);
+
+      // Sync hard delete ke music.db untuk semua file di folder tree
+      for (const file of filesInFolderTree) {
+        try {
+          MusicModel.deleteByFileId(file.id);
+        } catch (e) {
+          console.error(`Gagal sync delete music.db untuk file ${file.id}:`, e.message);
+        }
+      }
     }
 
     CacheMiddleware.invalidateUser(userId);
@@ -333,9 +363,10 @@ const TrashController = {
     }
 
     // ========== 3. Hapus FILE di dalam folder yang di-trash ==========
+    let filesInTrashedFolders = [];
     if (allFolderIds.length > 0) {
       const placeholders = allFolderIds.map(() => '?').join(',');
-      const [filesInTrashedFolders] = await pool.query(
+      [filesInTrashedFolders] = await pool.query(
         `SELECT id, file_path FROM files WHERE user_id = ? AND folder_id IN (${placeholders})`,
         [userId, ...allFolderIds]
       );
@@ -387,6 +418,24 @@ const TrashController = {
       `DELETE FROM files WHERE user_id = ? AND deleted_at IS NOT NULL`,
       [userId]
     );
+
+    // ========== 6. Sync hard delete ke music.db untuk semua file yang di-empty ==========
+    // Hapus track untuk file di folder yang di-trash
+    for (const file of filesInTrashedFolders) {
+      try {
+        MusicModel.deleteByFileId(file.id);
+      } catch (e) {
+        console.error(`Gagal sync delete music.db untuk file ${file.id}:`, e.message);
+      }
+    }
+    // Hapus track untuk file yang langsung di-trash
+    for (const file of directTrashedFiles) {
+      try {
+        MusicModel.deleteByFileId(file.id);
+      } catch (e) {
+        console.error(`Gagal sync delete music.db untuk file ${file.id}:`, e.message);
+      }
+    }
 
     CacheMiddleware.invalidateUser(userId);
 
