@@ -306,12 +306,37 @@ const MusicModel = {
   },
 
   /**
-   * List tracks milik user (dengan pagination & filter)
+   * List tracks milik user (dengan pagination, filter, sort)
+   * 
+   * Options:
+   *   limit, offset, artistId, albumId, search
+   *   sort  - 'title' (default), 'artist_name', 'album_title', 'duration', 'year', 'created_at'
+   *   order - 'ASC' (default) atau 'DESC'
    */
   listTracksByUser(
     userId,
-    { limit = 50, offset = 0, artistId = null, albumId = null, search = null } = {}
+    {
+      limit = 50,
+      offset = 0,
+      artistId = null,
+      albumId = null,
+      search = null,
+      sort = 'title',
+      order = 'ASC',
+    } = {}
   ) {
+    // Whitelist kolom sort yang aman (anti SQL injection)
+    const sortMap = {
+      title: 't.title',
+      artist_name: 'artist_name',
+      album_title: 'album_title',
+      duration: 't.duration',
+      year: 't.year',
+      created_at: 't.created_at',
+    };
+    const sortCol = sortMap[sort] || sortMap.title;
+    const sortOrder = String(order).toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
     let sql = `SELECT t.*, 
                       a.name as artist_name,
                       al.title as album_title, al.cover_path as album_cover_path,
@@ -336,7 +361,8 @@ const MusicModel = {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    sql += ` ORDER BY t.title ASC LIMIT ? OFFSET ?`;
+    // Secondary sort by id untuk stabilitas pagination
+    sql += ` ORDER BY ${sortCol} ${sortOrder}, t.id ASC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     return db.prepare(sql).all(...params);

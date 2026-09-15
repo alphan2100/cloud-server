@@ -143,10 +143,10 @@ Authorization: Bearer <token>
 
 ### 3. List Tracks
 
-List semua track milik user dengan pagination & filter.
+List semua track milik user dengan pagination, filter, & sort.
 
 ```http
-GET /music/tracks?page=1&limit=50&artist_id=1&album_id=2&search=love
+GET /music/tracks?page=1&limit=50&artist_id=1&album_id=2&search=love&sort=title&order=ASC
 Authorization: Bearer <token>
 ```
 
@@ -159,6 +159,10 @@ Authorization: Bearer <token>
 | `artist_id` | number | - | Filter by artist |
 | `album_id` | number | - | Filter by album |
 | `search` | string | - | Search di title/artist/album |
+| `sort` | string | `title` | Kolom sorting: `title`, `artist_name`, `album_title`, `duration`, `year`, `created_at` |
+| `order` | string | `ASC` | Arah sorting: `ASC` (A-Z) atau `DESC` (Z-A) |
+
+> **Note:** Sort `title` berdasarkan metadata track (hasil scan), **bukan** nama file. Ini memastikan sortir A-Z/Z-A sesuai judul lagu.
 
 **Response:**
 
@@ -304,7 +308,7 @@ Authorization: Bearer <token>
 Search track/artist/album.
 
 ```http
-GET /music/search?q=bohemian&page=1&limit=20
+GET /music/search?q=bohemian&page=1&limit=20&sort=title&order=ASC
 Authorization: Bearer <token>
 ```
 
@@ -315,6 +319,8 @@ Authorization: Bearer <token>
 | `q` | string | **wajib** | Query search (min 1 karakter) |
 | `page` | number | 1 | Halaman |
 | `limit` | number | 20 | Item per halaman (max 100) |
+| `sort` | string | `title` | Kolom sorting: `title`, `artist_name`, `album_title`, `duration`, `year`, `created_at` |
+| `order` | string | `ASC` | Arah sorting: `ASC` (A-Z) atau `DESC` (Z-A) |
 
 **Response:** Same format as List Tracks.
 

@@ -6,7 +6,7 @@ const { fetch } = require('undici');
 /**
  * Service untuk download & generate cover art album
  * - Download dari Cover Art Archive
- * - Fallback: generate placeholder via sharp (gradient + initial letter)
+ * - Fallback: generate placeholder via sharp (rounded card gradient hijau + icon music)
  */
 
 const COVERS_DIR = process.env.MUSIC_COVERS_DIR
@@ -93,60 +93,59 @@ async function downloadCover(url, mbidOrId) {
 }
 
 /**
- * Generate placeholder cover (gradient + initial letter)
- * Digunakan ketika Cover Art Archive tidak punya cover
+ * Generate placeholder cover (card rounded + gradient hijau + icon music)
+ * Digunakan ketika tidak ada cover dari iTunes / Cover Art Archive
+ * 
+ * Desain:
+ * - Card kotak dengan sudut agak rounded (rx=28)
+ * - Background gradient hijau Tailwind (from-green-400 → to-emerald-600)
+ * - Icon ri--music-fill.png di tengah (berwarna putih untuk kontras)
  * 
  * @param {string} mbidOrId - identifier untuk nama file
- * @param {string} text - text untuk initial (biasanya album/artist name)
+ * @param {string} text - text (tidak dipakai untuk desain, hanya untuk identitas)
  * @returns {Promise<string>} - path lokal placeholder
  */
 async function generatePlaceholderCover(mbidOrId, text = '') {
   const coverPath = getCoverPath(mbidOrId, '.jpg');
   ensureCoversDir();
 
-  // Ambil huruf pertama dari text, atau '?' jika kosong
-  const initial = (text || '').trim().charAt(0).toUpperCase() || '?';
-
-  // Pilih warna gradient berdasarkan hash text
-  const hash = hashString(text || mbidOrId);
-  const hue = hash % 360;
-  const color1 = `hsl(${hue}, 65%, 45%)`;
-  const color2 = `hsl(${(hue + 40) % 360}, 65%, 25%)`;
-
-  // Buat SVG placeholder
+  // 1. Background: SVG rounded card + gradient hijau Tailwind (green-400 → emerald-600)
   const svg = `
     <svg width="500" height="500" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:${color1}" />
-          <stop offset="100%" style="stop-color:${color2}" />
+          <stop offset="0%" style="stop-color:#4ade80" />
+          <stop offset="100%" style="stop-color:#059669" />
         </linearGradient>
       </defs>
-      <rect width="500" height="500" fill="url(#grad)" />
-      <text x="50%" y="50%" 
-            font-family="Arial, sans-serif" 
-            font-size="240" 
-            font-weight="bold"
-            fill="rgba(255,255,255,0.85)" 
-            text-anchor="middle" 
-            dominant-baseline="central">${initial}</text>
+      <rect width="500" height="500" rx="28" fill="url(#grad)" />
     </svg>`;
 
-  await sharp(Buffer.from(svg)).jpeg({ quality: 85 }).toFile(coverPath);
+  // Render background ke buffer (PNG agar support alpha saat komposisi)
+  const bgBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
+
+  // 2. Icon ri--music-fill.png, resize ke ~35% canvas, tint putih untuk kontras
+  const iconSize = 320;
+  const iconPath = path.join(__dirname, '..', 'music-solid.png');
+  const iconBuffer = await sharp(iconPath)
+    .resize(iconSize, iconSize)
+    .tint({ r: 255, g: 255, b: 255 })
+    .png()
+    .toBuffer();
+
+  // 3. Composite icon di tengah, output JPEG (kompatibel dgn Content-Type image/jpeg)
+  await sharp(bgBuffer)
+    .composite([
+      {
+        input: iconBuffer,
+        left: Math.round((500 - iconSize) / 2),
+        top: Math.round((500 - iconSize) / 2),
+      },
+    ])
+    .jpeg({ quality: 85 })
+    .toFile(coverPath);
 
   return coverPath;
-}
-
-/**
- * Hash string sederhana untuk menentukan warna placeholder
- */
-function hashString(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
-  }
-  return Math.abs(hash);
 }
 
 /**

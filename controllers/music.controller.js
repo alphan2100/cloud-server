@@ -57,8 +57,8 @@ const MusicController = {
 
   /**
    * GET /music/tracks
-   * List tracks milik user (pagination, filter, search)
-   * Query: page, limit, artist_id, album_id, search
+   * List tracks milik user (pagination, filter, search, sort)
+   * Query: page, limit, artist_id, album_id, search, sort, order
    */
   listTracks: asyncHandler(async (req, res) => {
     const userId = req.user.id;
@@ -68,8 +68,10 @@ const MusicController = {
     const artistId = req.query.artist_id ? parseInt(req.query.artist_id) : null;
     const albumId = req.query.album_id ? parseInt(req.query.album_id) : null;
     const search = req.query.search || null;
+    const sort = req.query.sort || 'title';
+    const order = req.query.order || 'ASC';
 
-    const tracks = MusicModel.listTracksByUser(userId, { limit, offset, artistId, albumId, search });
+    const tracks = MusicModel.listTracksByUser(userId, { limit, offset, artistId, albumId, search, sort, order });
     const total = MusicModel.countTracksByUser(userId, { artistId, albumId, search });
 
     return res.json({
@@ -172,8 +174,10 @@ const MusicController = {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const offset = (page - 1) * limit;
+    const sort = req.query.sort || 'title';
+    const order = req.query.order || 'ASC';
 
-    const tracks = MusicModel.listTracksByUser(userId, { limit, offset, search: q });
+    const tracks = MusicModel.listTracksByUser(userId, { limit, offset, search: q, sort, order });
     const total = MusicModel.countTracksByUser(userId, { search: q });
 
     return res.json({

@@ -103,7 +103,7 @@ const authLimiter = rateLimit({
 // Rate limiting umum untuk API
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 menit
-  max: 1000, // max 1000 request per window (ditingkatkan dari 200)
+  max: 99999999, // max 1000 request per window (ditingkatkan dari 200)
   message: {
     success: false,
     code: 'TOO_MANY_REQUESTS',
@@ -116,7 +116,7 @@ const apiLimiter = rateLimit({
 // Rate limiting yang lebih longgar untuk endpoints yang sering di-access
 const lenientLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 menit
-  max: 2000, // max 2000 request per window
+  max: 9999999, // max 2000 request per window
   message: {
     success: false,
     code: 'TOO_MANY_REQUESTS',
