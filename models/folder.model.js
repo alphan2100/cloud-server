@@ -56,6 +56,24 @@ const FolderModel = {
     return rows[0] || null;
   },
 
+  // Cari folder anak aktif berdasarkan nama dalam parent tertentu
+  async findByName(userId, parentId, folderName) {
+    const [rows] = await pool.query(
+      `
+      SELECT *
+      FROM folders
+      WHERE user_id = ?
+      AND parent_id <=> ?
+      AND folder_name = ?
+      AND deleted_at IS NULL
+      LIMIT 1
+      `,
+      [userId, parentId, folderName]
+    );
+
+    return rows[0] || null;
+  },
+
   // Ambil folder dalam parent tertentu
   async findChildren(userId, parentId = null) {
     const [rows] = await pool.query(

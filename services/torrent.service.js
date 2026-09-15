@@ -42,6 +42,52 @@ function guessMimeType(filePath) {
   return MIME_MAP[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
+function sanitizeFolderName(name) {
+  return String(name || '')
+    .trim()
+    .replace(/[<>:"\\|?*\x00-\x1F]/g, '_')
+    .replace(/\.+$/g, '')
+    .slice(0, 255);
+}
+
+function getRelativeTorrentPath(filePath, saveDir) {
+  const resolvedFile = path.resolve(filePath);
+  const resolvedSaveDir = path.resolve(saveDir);
+  const relativePath = path.relative(resolvedSaveDir, resolvedFile);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return path.basename(filePath);
+  }
+
+  return relativePath;
+}
+
+async function ensureCloudFolderPath(userId, parentFolderId, folderParts) {
+  let currentParentId = parentFolderId;
+
+  for (const part of folderParts) {
+    const folderName = sanitizeFolderName(part);
+    if (!folderName || folderName === '.' || folderName === '..') continue;
+
+    const existing = await FolderModel.findByName(userId, currentParentId, folderName);
+    if (existing) {
+      currentParentId = existing.id;
+      continue;
+    }
+
+    const folderId = await FolderModel.create(userId, currentParentId, folderName);
+    const physicalDir = path.join(
+      process.env.UPLOADS_DIR,
+      `user_${userId}`,
+      `folder_${folderId}`
+    );
+    await fs.promises.mkdir(physicalDir, { recursive: true });
+    currentParentId = folderId;
+  }
+
+  return currentParentId;
+}
+
 /**
  * In-memory registry semua task torrent yang sedang berjalan/baru selesai.
  * Key = gid aria2 (bisa berubah untuk magnet setelah metadata selesai, lihat getStatus).
@@ -127,6 +173,13 @@ function filesFromBtInfo(btInfo, fallbackName) {
     return [{ path: btInfo.name || fallbackName, length: 0 }];
   }
   return [];
+}
+
+function isMagnetMetadataStatus(task, result) {
+  if (!task.isMagnet || task.previousGid) return false;
+
+  const files = Array.isArray(result.files) ? result.files : [];
+  return files.some((file) => String(file.path || '').includes('[METADATA]'));
 }
 
 /**
@@ -274,6 +327,7 @@ async function startFromMagnet(userId, folderId, magnetUri, displayName) {
     errorMessage: null,
     uploadedFiles: [],
     createdAt: Date.now(),
+    isMagnet: true,
   };
   tasks.set(gid, task);
   return snapshot(task);
@@ -343,6 +397,7 @@ async function startFromTorrentBuffer(userId, folderId, buffer, originalName) {
     errorMessage: null,
     uploadedFiles: [],
     createdAt: Date.now(),
+    isMagnet: false,
   };
   tasks.set(gid, task);
   return snapshot(task);
@@ -421,6 +476,14 @@ async function getStatus(userId, gid) {
   task.completedLength = parseInt(result.completedLength || '0', 10);
   task.downloadSpeed = parseInt(result.downloadSpeed || '0', 10);
 
+  // Magnet punya fase metadata kecil ([MEMORY][METADATA]...) sebelum aria2
+  // membuat GID baru untuk konten sebenarnya. Jangan proses upload saat yang
+  // selesai baru metadata; tunggu followedBy lalu switch ke GID konten.
+  if (isMagnetMetadataStatus(task, result)) {
+    task.status = 'downloading';
+    return snapshot(task);
+  }
+
   if (result.status === 'active' || result.status === 'waiting') {
     // Fallback: jika aria2 masih report 'active' (misal seeding) tapi
     // semua data sudah terdownload, trigger processCompletion langsung.
@@ -485,7 +548,10 @@ async function processCompletion(task, ariaResult) {
     const stat = await fs.promises.stat(filePath);
     if (stat.isDirectory()) continue;
 
-    const originalName = path.basename(filePath);
+    const relativePath = getRelativeTorrentPath(filePath, task.saveDir);
+    const relativeParts = relativePath.split(path.sep).filter(Boolean);
+    const originalName = relativeParts.pop() || path.basename(filePath);
+    const targetFolderId = await ensureCloudFolderPath(task.userId, task.folderId, relativeParts);
 
     // Safety-net terakhir sebelum upload ke storage user - jangan pernah
     // loloskan file berekstensi berbahaya walau entah bagaimana sampai di sini
@@ -507,7 +573,7 @@ async function processCompletion(task, ariaResult) {
       try {
         const result = await uploadService.processFile({
           userId: task.userId,
-          folderId: task.folderId,
+          folderId: targetFolderId,
           filePath,
           originalName: finalName,
           storedName,
