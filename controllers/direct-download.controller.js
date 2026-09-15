@@ -318,7 +318,7 @@ const DirectDownloadController = {
    */
   start: asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    const { url, folder_id, headers, filename, type, merge_urls } = req.body;
+    const { url, folder_id, headers, filename, type, merge_urls, quality } = req.body;
 
     if (!url || typeof url !== 'string') {
       throw new AppError('URL wajib diisi', 400, 'VALIDATION_ERROR');
@@ -334,6 +334,7 @@ const DirectDownloadController = {
       filename,
       type,
       mergeUrls: merge_urls,
+      quality,
     });
 
     return res.status(201).json({
@@ -413,13 +414,14 @@ const DirectDownloadController = {
   retry: asyncHandler(async (req, res) => {
     const { taskId } = req.params;
     const userId = req.user.id;
-    const { url, headers, filename, type, folder_id } = req.body || {};
+    const { url, headers, filename, type, folder_id, quality } = req.body || {};
 
     const overrides = {};
     if (url) overrides.url = url;
     if (headers) overrides.headers = headers;
     if (filename) overrides.filename = filename;
     if (type) overrides.type = type;
+    if (quality !== undefined) overrides.quality = quality;
     if (folder_id) overrides.folderId = String(folder_id);
     if (userId) overrides.userId = userId;
 

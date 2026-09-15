@@ -23,6 +23,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const Aria2Client = require('./aria2Client');
+const { downloadHlsNative } = require('./hlsNativeEngine');
 
 const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR
   ? path.resolve(process.env.DOWNLOAD_DIR)
@@ -59,6 +60,16 @@ function sanitizeFilename(name) {
 function isStreamingUrl(targetUrl, type) {
   if (type === 'hls' || type === 'dash') return true;
   return /\.m3u8(\?|#|$)/i.test(targetUrl) || /\.mpd(\?|#|$)/i.test(targetUrl);
+}
+
+function isHlsUrl(targetUrl, type) {
+  if (type === 'hls') return true;
+  return /\.m3u8(\?|#|$)/i.test(targetUrl);
+}
+
+function isDashUrl(targetUrl, type) {
+  if (type === 'dash') return true;
+  return /\.mpd(\?|#|$)/i.test(targetUrl);
 }
 
 function headersToAria2(headers = {}) {
@@ -100,6 +111,7 @@ function baseRecord({ id, url, headers, filename, engine, userId, folderId }) {
     gid: null, // aria2 only
     process: null, // ffmpeg only
     pid: null, // ffmpeg only
+    abortController: null, // native fetch engines
     storedName: null, // actual filename on disk
     tempFilePath: null,
     finalFilePath: null,
@@ -107,11 +119,16 @@ function baseRecord({ id, url, headers, filename, engine, userId, folderId }) {
     currentSeconds: null, // ffmpeg only, current position
     fileResult: null, // result from uploadService.processFile()
     fileId: null,
+    phase: null,
+    totalSegments: null,
+    completedSegments: null,
+    fetchedBytes: null,
+    selectedVariant: null,
   };
 }
 
 function cleanupTemp(record) {
-  const candidates = [record.tempFilePath];
+  const candidates = [record.tempFilePath, record.intermediateFilePath];
   if (record.engine === 'aria2' && record.tempFilePath) {
     candidates.push(record.tempFilePath + '.aria2'); // aria2's control file
   }
@@ -239,6 +256,13 @@ async function refreshAria2Status(record) {
 function ffmpegOutName(baseName) {
   if (/\.(mp4|mkv|mov|ts|m4a|mp3|aac)$/i.test(baseName)) return baseName;
   return baseName.replace(/\.[^./]*$/, '') + '.mp4';
+}
+
+function hlsOutName(baseName) {
+  const cleaned = baseName.replace(/\.(m3u8|mpd)$/i, '');
+  if (/\.(mp4|mkv|ts)$/i.test(cleaned)) return cleaned;
+  if (/\.[^./]+$/.test(cleaned)) return cleaned.replace(/\.[^./]+$/, '.mkv');
+  return cleaned + '.mkv';
 }
 
 function startFfmpegDownload({ url, headers, filename }) {
@@ -530,13 +554,56 @@ function startFfmpegMergeDownload({ urls, headers, filename }) {
   return record;
 }
 
+function startHlsNativeDownload({ url, headers, filename, quality }) {
+  const id = genId();
+  let rawName;
+  try {
+    rawName = sanitizeFilename(filename || path.basename(new URL(url).pathname) || 'stream');
+  } catch (e) {
+    rawName = sanitizeFilename(filename || 'stream');
+  }
+  const outName = hlsOutName(rawName);
+  const storedName = `${id}_${outName}`;
+  const tempTsPath = path.join(DOWNLOAD_DIR, `.part_${id}.ts`);
+  const finalPath = path.join(DOWNLOAD_DIR, storedName);
+
+  const record = baseRecord({ id, url, headers, filename: outName, engine: 'hls-native' });
+  record.storedName = storedName;
+  record.tempFilePath = finalPath;
+  record.intermediateFilePath = tempTsPath;
+  record.finalFilePath = finalPath;
+  downloads.set(id, record);
+
+  downloadHlsNative({
+    url,
+    headers,
+    tempTsPath,
+    finalPath,
+    keepTsPath: /\.ts$/i.test(outName) ? finalPath : null,
+    ffmpegPath: FFMPEG_PATH,
+    record,
+    quality,
+  }).catch((error) => {
+    if (record.status !== 'cancelled') {
+      record.status = 'error';
+      record.errorMessage = error.message;
+      record.updatedAt = Date.now();
+      cleanupTemp(record);
+    }
+  });
+
+  return record;
+}
+
 // -------------------------------------------------------------- shared ---
 
-async function startDownload({ url, headers, filename, type, userId, folderId }) {
+async function startDownload({ url, headers, filename, type, userId, folderId, quality }) {
   if (!url) throw new Error('url is required');
   
   let record;
-  if (isStreamingUrl(url, type)) {
+  if (isHlsUrl(url, type)) {
+    record = startHlsNativeDownload({ url, headers, filename, quality });
+  } else if (isDashUrl(url, type) || isStreamingUrl(url, type)) {
     record = startFfmpegDownload({ url, headers, filename });
   } else {
     record = await startAria2Download({ url, headers, filename });
@@ -561,6 +628,12 @@ function serialize(record) {
     speed: record.speed,
     errorMessage: record.errorMessage,
     canPause: record.engine === 'aria2',
+    phase: record.phase,
+    totalSegments: record.totalSegments,
+    completedSegments: record.completedSegments,
+    fetchedBytes: record.fetchedBytes,
+    selectedVariant: record.selectedVariant,
+    fileSize: record.fileSize,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     userId: record.userId,
@@ -596,6 +669,10 @@ async function pauseDownload(id) {
     return serialize(record);
   }
 
+  if (record.engine === 'hls-native') {
+    throw new Error('Pause is not supported for native HLS downloads yet. Cancel or let it finish.');
+  }
+
   // ffmpeg: best-effort pause via SIGSTOP (Unix only)
   if (!record.pid) throw new Error('No running ffmpeg process to pause');
   try {
@@ -616,6 +693,10 @@ async function resumeDownload(id) {
     await aria2.unpause(record.gid);
     record.status = 'active';
     return serialize(record);
+  }
+
+  if (record.engine === 'hls-native') {
+    throw new Error('Resume is not supported for native HLS downloads yet.');
   }
 
   if (!record.pid) throw new Error('No running ffmpeg process to resume');
@@ -664,6 +745,24 @@ async function cancelDownload(id) {
     cleanupTemp(record);
   }
 
+  if (record.engine === 'hls-native') {
+    if (record.abortController) {
+      try {
+        record.abortController.abort();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    if (record.process) {
+      try {
+        record.process.kill('SIGKILL');
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    cleanupTemp(record);
+  }
+
   return serialize(record);
 }
 
@@ -681,7 +780,8 @@ async function retryDownload(id, overrides = {}) {
     url: overrides.url || old.url,
     headers: overrides.headers || old.headers,
     filename: overrides.filename || old.filename,
-    type: overrides.type || (old.engine === 'ffmpeg' ? 'hls' : undefined),
+    type: overrides.type || (old.engine === 'ffmpeg' || old.engine === 'hls-native' ? 'hls' : undefined),
+    quality: overrides.quality,
     userId: overrides.userId || old.userId,
     folderId: overrides.folderId || old.folderId,
   });
@@ -719,7 +819,9 @@ function updateRecord(id, updates) {
 
 module.exports = {
   DOWNLOAD_DIR,
+  serialize,
   startDownload,
+  startHlsNativeDownload,
   startFfmpegMergeDownload,
   getStatus,
   listStatuses,

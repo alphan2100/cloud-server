@@ -59,6 +59,12 @@ class DownloadService {
     }
   }
 
+  _isStreamingRequest(url, options = {}) {
+    const type = options.type;
+    if (type === 'hls' || type === 'dash') return true;
+    return /\.m3u8(\?|#|$)/i.test(url) || /\.mpd(\?|#|$)/i.test(url);
+  }
+
   /**
    * Check connection status
    */
@@ -86,13 +92,18 @@ class DownloadService {
    * @returns {Promise<Object>} task info
    */
   async startDownload(url, userId, folderId = null, options = {}) {
-    this._ensureAria2Connected();
-
     // Validate URL
     try {
       new URL(url);
     } catch (err) {
       throw new AppError('URL tidak valid', 400, 'VALIDATION_ERROR');
+    }
+
+    const usesExternalDownloader =
+      !this._isStreamingRequest(url, options) &&
+      !(options.mergeUrls && Array.isArray(options.mergeUrls) && options.mergeUrls.length >= 2);
+    if (usesExternalDownloader) {
+      this._ensureAria2Connected();
     }
 
     let record;
@@ -116,6 +127,7 @@ class DownloadService {
         headers: options.headers || {},
         filename: options.filename || null,
         type: options.type || null,
+        quality: options.quality ?? null,
         userId,
         folderId,
       });
@@ -231,7 +243,6 @@ class DownloadService {
    * Pause a download task
    */
   async pause(taskId) {
-    this._ensureAria2Connected();
     try {
       return await downloadManager.pauseDownload(taskId);
     } catch (err) {
@@ -243,7 +254,6 @@ class DownloadService {
    * Resume a paused download task
    */
   async resume(taskId) {
-    this._ensureAria2Connected();
     try {
       return await downloadManager.resumeDownload(taskId);
     } catch (err) {
